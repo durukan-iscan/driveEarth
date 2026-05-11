@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DriveEarth – Hannover</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; font-family: monospace; }
+    canvas { display: block; }
+
+    /* ── Car selector ── */
+    #car-selector {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1001;
+    }
+    .car-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      background: rgba(0,0,0,0.78);
+      border: 2px solid rgba(255,255,255,0.15);
+      border-radius: 14px;
+      cursor: pointer;
+      color: #fff;
+      font-size: 1.2rem;
+      font-family: monospace;
+      backdrop-filter: blur(6px);
+      transition: border-color 0.15s, background 0.15s;
+      pointer-events: all;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .car-card:hover  { border-color: rgba(255,255,255,0.45); }
+    .car-card.active { border-color: #fff; background: rgba(255,255,255,0.14); }
+    .car-swatch {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.35);
+      flex-shrink: 0;
+    }
+
+    /* ── Search bar ── */
+    #searchbar {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+    #searchInput {
+      width: 900px;
+      padding: 28px 36px;
+      border: none;
+      border-radius: 18px;
+      font-size: 3rem;
+      font-family: monospace;
+      background: rgba(0,0,0,0.82);
+      color: #fff;
+      outline: 2px solid transparent;
+      transition: outline 0.15s;
+    }
+    #searchInput:focus { outline: 3px solid #4488ff; }
+    #searchInput::placeholder { color: #555; }
+    #searchBtn {
+      padding: 28px 48px;
+      border: none;
+      border-radius: 18px;
+      background: #2255cc;
+      color: #fff;
+      font-family: monospace;
+      font-size: 3rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #searchBtn:hover:not(:disabled) { background: #3366ee; }
+    #searchBtn:disabled { opacity: 0.5; cursor: default; }
+    #searchStatus {
+      display: flex;
+      align-items: center;
+      color: #ffaa44;
+      font-size: 2.4rem;
+      white-space: nowrap;
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      text-align: center;
+      text-shadow: 0 2px 6px #000;
+      pointer-events: none;
+      user-select: none;
+    }
+    #speed {
+      font-size: 4rem;
+      font-weight: bold;
+      letter-spacing: 0.05em;
+    }
+    #address {
+      font-size: 1.5rem;
+      opacity: 0.95;
+      margin-top: 6px;
+      max-width: 700px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #controls {
+      font-size: 1.1rem;
+      opacity: 0.55;
+      margin-top: 8px;
+    }
+
+    /* ── Warning / Loading ── */
+    #warning {
+      display: none;
+      position: fixed;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(200,40,40,0.92);
+      color: #fff;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      text-align: center;
+      pointer-events: none;
+    }
+    #warning a { color: #ffdddd; }
+    #loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%,-50%);
+      color: rgba(255,255,255,0.6);
+      font-size: 0.85rem;
+      pointer-events: none;
+      transition: opacity 1s;
+    }
+
+    /* ── Minimap ── */
+    #minimap {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      width: 1050px;
+      height: 1050px;
+      border-radius: 24px;
+      overflow: hidden;
+      border: 3px solid rgba(255,255,255,0.3);
+      z-index: 1000;
+      box-shadow: 0 6px 32px rgba(0,0,0,0.7);
+    }
+
+    /* ── Rate-limit overlay ── */
+    #ratelimit {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.78);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 8000;
+      pointer-events: none;
+      text-align: center;
+    }
+    #ratelimit-msg {
+      color: #ff5533;
+      font-size: 2.4rem;
+      font-weight: bold;
+      text-shadow: 0 2px 8px #000;
+    }
+    #ratelimit-countdown {
+      color: #ffdd44;
+      font-size: 7rem;
+      font-weight: bold;
+      margin-top: 16px;
+      text-shadow: 0 2px 12px #000;
+    }
+
+    /* ── Debug panel (health-bar style) ── */
+    #debug {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(0,0,0,0.82);
+      color: #fff;
+      font-size: 2rem;
+      font-family: monospace;
+      padding: 32px 40px;
+      border-radius: 22px;
+      z-index: 9999;
+      min-width: 580px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.12);
+      pointer-events: none;
+      user-select: text;
+    }
+    .hb-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+      font-size: 1.8rem;
+    }
+    .hb-status { color: #00ff88; font-weight: bold; }
+    .hb-vis    { opacity: 0.5; font-size: 1.6rem; }
+    .hb-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .hb-lbl {
+      width: 130px;
+      opacity: 0.55;
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+    .hb-track {
+      flex: 1;
+      height: 20px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .hb-fill {
+      height: 100%;
+      border-radius: 10px;
+      width: 0%;
+      transition: width 0.4s ease, background-color 0.4s ease;
+      background: #00cc66;
+    }
+    .hb-val {
+      width: 72px;
+      text-align: right;
+      font-size: 1.55rem;
+      opacity: 0.9;
+      flex-shrink: 0;
+    }
+    .hb-plain {
+      display: flex;
+      gap: 28px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      font-size: 1.5rem;
+      opacity: 0.65;
+    }
+  </style>
+</head>
+<body>
+  <div id="car-selector">
+    <div class="car-card active" data-car="0"><div class="car-swatch" style="background:#ff5200"></div>BMW M1</div>
+    <div class="car-card"        data-car="1"><div class="car-swatch" style="background:#cc1100"></div>Ferrari TR</div>
+    <div class="car-card"        data-car="2"><div class="car-swatch" style="background:#d8d8d8"></div>Porsche 911</div>
+    <div class="car-card"        data-car="3"><div class="car-swatch" style="background:#1a3a1a"></div>Mustang GT</div>
+    <div class="car-card"        data-car="4"><div class="car-swatch" style="background:#ffcc00"></div>Countach</div>
+  </div>
+
+  <div id="debug">
+    <div class="hb-top">
+      <span class="hb-status" id="dbg-status">başlatılıyor…</span>
+      <span class="hb-vis"><span id="dbg-vis">0</span> tile görünür</span>
+    </div>
+    <div class="hb-row">
+      <span class="hb-lbl">root/gün</span>
+      <div class="hb-track"><div class="hb-fill" id="bar-root"></div></div>
+      <span class="hb-val" id="val-root">0</span>
+    </div>
+    <div class="hb-row">
+      <span class="hb-lbl">tile/dak</span>
+      <div class="hb-track"><div class="hb-fill" id="bar-min"></div></div>
+      <span class="hb-val" id="val-min">0</span>
+    </div>
+    <div class="hb-plain">
+      <span>tile/gün <strong id="val-rend">0</strong></span>
+      <span>hata <strong id="val-err">0</strong></span>
+    </div>
+  </div>
+
+  <div id="searchbar">
+    <input id="searchInput" type="text" placeholder="Adres ara… (örn: Kröpcke, Hannover)" autocomplete="off" />
+    <button id="searchBtn">Git</button>
+    <span id="searchStatus"></span>
+  </div>
+  <div id="warning">
+    ⚠ No API key — showing flat fallback.<br>
+    Copy <code>.env.example</code> → <code>.env</code> and set <code>VITE_GOOGLE_API_KEY</code>.
+  </div>
+  <div id="minimap"></div>
+  <div id="loading">Loading 3D tiles…</div>
+  <div id="ratelimit" style="display:none">
+    <div id="ratelimit-msg">API dakika limitine ulaşıldı — resetlenmesini bekle</div>
+    <div id="ratelimit-countdown">60</div>
+  </div>
+  <div id="hud">
+    <div id="speed">0 km/h</div>
+    <div id="address">konum belirleniyor…</div>
+    <div id="controls">W / ↑ &nbsp;Hızlan &nbsp;|&nbsp; S / ↓ &nbsp;Fren &nbsp;|&nbsp; A / D &nbsp;Direksiyon &nbsp;|&nbsp; 🖱 Sol tık → kamera</div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
