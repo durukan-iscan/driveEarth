@@ -206,6 +206,19 @@
       z-index: 1000;
       box-shadow: 0 8px 40px rgba(0,0,0,0.7);
     }
+    #map-drag-handle {
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 180px;
+      height: 24px;
+      background: rgba(255,255,255,0.35);
+      border-radius: 12px;
+      z-index: 1007;
+      cursor: grab;
+    }
+    #map-drag-handle:active { cursor: grabbing; }
     .map-handle {
       position: absolute;
       z-index: 1005;
@@ -394,6 +407,7 @@
     <div class="map-handle" id="map-handle-t"></div>
     <div class="map-handle" id="map-handle-tr"></div>
     <button id="mapModeBtn">3D</button>
+    <div id="map-drag-handle"></div>
   </div>
   <div id="loading">Loading 3D tiles…</div>
   <div id="ratelimit" style="display:none">

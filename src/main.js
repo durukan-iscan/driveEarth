@@ -972,7 +972,11 @@ camera.lookAt(pos.x, pos.y + 1.2, pos.z);
 camera.updateMatrixWorld();
 
 // ── Minimap (Leaflet / OpenStreetMap) ─────────────────────────────────────────
-const miniMap    = window.L.map('minimap', { zoomControl: false, attributionControl: false });
+const miniMap    = window.L.map('minimap', {
+  zoomControl: false, attributionControl: false,
+  wheelPxPerZoomLevel: 240,   // much less sensitive scroll-zoom
+  zoomSnap: 0.25,
+});
 const mapLayer2D = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
 const mapLayer3D = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
 mapLayer2D.addTo(miniMap);
@@ -989,6 +993,12 @@ const _arrowIcon = window.L.divIcon({
   className: '',
 });
 const carDot = window.L.marker([LAT, LNG], { icon: _arrowIcon }).addTo(miniMap);
+
+// pause auto-follow while user is manually panning
+let mapUserPanning = false;
+let _mapPanTimer;
+miniMap.on('dragstart', () => { mapUserPanning = true; clearTimeout(_mapPanTimer); });
+miniMap.on('dragend',   () => { _mapPanTimer = setTimeout(() => { mapUserPanning = false; }, 3000); });
 
 let mapIs3D = false;
 document.getElementById('mapModeBtn').addEventListener('click', () => {
@@ -1028,6 +1038,31 @@ document.getElementById('mapModeBtn').addEventListener('click', () => {
     miniMap.invalidateSize();
   });
   window.addEventListener('mouseup', () => { drag = null; });
+}
+
+// ── Minimap widget drag-to-move (grab handle at bottom) ──────────────────────
+{
+  const mapEl  = document.getElementById('minimap');
+  const handle = document.getElementById('map-drag-handle');
+  let moveDrag = null;
+
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const rect = mapEl.getBoundingClientRect();
+    mapEl.style.top    = rect.top  + 'px';
+    mapEl.style.left   = rect.left + 'px';
+    mapEl.style.bottom = 'auto';
+    mapEl.style.right  = 'auto';
+    moveDrag = { x0: e.clientX, y0: e.clientY, l0: rect.left, t0: rect.top };
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!moveDrag) return;
+    mapEl.style.left = (moveDrag.l0 + e.clientX - moveDrag.x0) + 'px';
+    mapEl.style.top  = (moveDrag.t0 + e.clientY - moveDrag.y0) + 'px';
+  });
+
+  window.addEventListener('mouseup', () => { moveDrag = null; });
 }
 
 let lastMapUpdateMs = 0;
@@ -1183,7 +1218,7 @@ const clock = new THREE.Clock();
   camera.position.copy(camPos);
   camera.lookAt(camLookAt);
 
-  // Minimap update (max twice per second)
+  // Minimap position update (max twice per second)
   const nowMap = Date.now();
   if (nowMap - lastMapUpdateMs > 500) {
     lastMapUpdateMs = nowMap;
@@ -1191,7 +1226,7 @@ const clock = new THREE.Clock();
     carDot.setLatLng([lat, lng]);
     const _arrowEl = carDot.getElement()?.querySelector('.car-arrow-inner');
     if (_arrowEl) _arrowEl.style.transform = `rotate(${-yaw * 180 / Math.PI}deg)`;
-    miniMap.setView([lat, lng], miniMap.getZoom());
+    if (!mapUserPanning) miniMap.setView([lat, lng], miniMap.getZoom());
   }
 
   // ── Rate-limit guard ──────────────────────────────────────────────────────
