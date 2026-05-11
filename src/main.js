@@ -7,6 +7,8 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 const LAT     = 52.3759;   // Hannover Hauptbahnhof
 const LNG     = 9.7320;
 const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY ?? '';
+let   originLat = LAT;     // tile-world origin — re-centered on every teleport
+let   originLng = LNG;
 
 // Cache tile responses locally so they are never re-downloaded on page reload
 if ('serviceWorker' in navigator) {
@@ -62,28 +64,44 @@ function quotaTrackRequest(url) {
   }
 }
 
+// DRACOLoader — created once, shared across TilesRenderer instances
+let draco = null;
 if (API_KEY) {
-  const draco = new DRACOLoader();
+  draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+}
 
-  tiles = new TilesRenderer();
-  tiles.registerPlugin(new GoogleCloudAuthPlugin({ apiToken: API_KEY }));
-  tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader: draco }));
-  tiles.registerPlugin(new ReorientationPlugin({
-    lat: THREE.MathUtils.degToRad(LAT),
-    lon: THREE.MathUtils.degToRad(LNG),
+// Rebuilds the TilesRenderer centered on a new lat/lng.
+// Required because WebGL 32-bit floats lose centimeter precision beyond ~10 km
+// from the scene origin — distant cities appear as a blue void otherwise.
+function resetTiles(lat, lng) {
+  if (tiles) {
+    scene.remove(tiles.group);
+    try { tiles.dispose(); } catch (_) {}
+  }
+  originLat = lat;
+  originLng = lng;
+  const t = new TilesRenderer();
+  t.registerPlugin(new GoogleCloudAuthPlugin({ apiToken: API_KEY }));
+  t.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader: draco }));
+  t.registerPlugin(new ReorientationPlugin({
+    lat: THREE.MathUtils.degToRad(lat),
+    lon: THREE.MathUtils.degToRad(lng),
   }));
-
-  // No throttle — service worker caches everything after first download.
-  tiles.errorTarget = 12;
-
-  tiles.addEventListener('load-tile-set-error', e => { quota.errors++; console.error(e); });
-  tiles.manager.onLoad = () => {
+  t.errorTarget = 12;
+  t.addEventListener('load-tile-set-error', e => { quota.errors++; console.error(e); });
+  t.manager.onLoad = () => {
     const el = document.getElementById('loading');
     if (el) el.style.opacity = '0';
   };
+  t.setCamera(camera);
+  t.setResolutionFromRenderer(camera, renderer);
+  scene.add(t.group);
+  tiles = t;
+}
 
-  // Intercept fetch to track quota usage
+if (API_KEY) {
+  // Patch fetch once — survives resetTiles calls
   const origFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => {
     if (typeof url === 'string') quotaTrackRequest(url);
@@ -92,10 +110,7 @@ if (API_KEY) {
       return r;
     });
   };
-
-  tiles.setCamera(camera);
-  tiles.setResolutionFromRenderer(camera, renderer);
-  scene.add(tiles.group);
+  resetTiles(LAT, LNG);
 } else {
   document.getElementById('warning').style.display = 'block';
   document.getElementById('loading').style.display  = 'none';
@@ -542,30 +557,155 @@ function buildCountach() {
   return { root, wheels };
 }
 
-// ── Car registry + selector ────────────────────────────────────────────────────
+// ── Airplane ─────────────────────────────────────────────────────────────────
+function buildAirplane() {
+  const root  = new THREE.Group();
+  const alum  = new THREE.MeshPhongMaterial({ color: 0xe2e8f0, shininess: 145, specular: 0x4488aa });
+  const dark  = new THREE.MeshPhongMaterial({ color: 0x1a1a1a, shininess: 25 });
+  const glass = new THREE.MeshPhongMaterial({ color: 0x0d2233, transparent: true, opacity: 0.70, shininess: 130 });
+  const blue  = new THREE.MeshPhongMaterial({ color: 0x1144dd, shininess: 110 });
+  const eng   = new THREE.MeshPhongMaterial({ color: 0x666666, shininess: 90 });
+  const redM  = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+  const grnM  = new THREE.MeshBasicMaterial({ color: 0x00ee22 });
+
+  // Fuselage (nose = +Z)
+  const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.60, 0.54, 8.5, 20), alum);
+  fuse.rotation.x = Math.PI / 2;
+
+  const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.60, 2.2, 20), alum);
+  noseCone.rotation.x = Math.PI / 2;
+  noseCone.position.z = 5.35;
+
+  const tailCone = new THREE.Mesh(new THREE.ConeGeometry(0.54, 1.6, 20), alum);
+  tailCone.rotation.x = -Math.PI / 2;
+  tailCone.position.z = -5.05;
+
+  // Blue livery stripe along fuselage
+  const fuseStripe = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.16, 8.2), blue);
+  fuseStripe.position.y = 0.22;
+
+  // Center wing section
+  const wingCtr = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.13, 1.7), alum);
+  wingCtr.position.set(0, -0.18, 0.4);
+
+  [-1, 1].forEach(s => {
+    // Mid wing (swept)
+    const wMid = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.10, 1.3), alum);
+    wMid.position.set(s * 2.5, -0.20, 0.6); wMid.rotation.y = s * 0.14;
+    root.add(wMid);
+    // Tip wing
+    const wTip = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.08, 0.90), alum);
+    wTip.position.set(s * 4.7, -0.22, 0.9); wTip.rotation.y = s * 0.26;
+    root.add(wTip);
+    // Winglet
+    const wlet = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.60, 0.70), blue);
+    wlet.position.set(s * 5.8, 0.07, 0.95);
+    root.add(wlet);
+    // Engine nacelle
+    const nac = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.27, 2.0, 16), eng);
+    nac.rotation.x = Math.PI / 2; nac.position.set(s * 2.8, -0.56, 0.8);
+    root.add(nac);
+    // Intake ring
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 16), dark);
+    ring.rotation.x = Math.PI / 2; ring.position.set(s * 2.8, -0.56, 1.83);
+    root.add(ring);
+    // Pylon
+    const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 1.2), eng);
+    pylon.position.set(s * 2.8, -0.36, 0.8);
+    root.add(pylon);
+    // Wing-tip nav light (red = left, green = right)
+    const wLight = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), s < 0 ? redM : grnM);
+    wLight.position.set(s * 5.8, -0.20, 0.95);
+    root.add(wLight);
+    // Horizontal stabilizer
+    const hstab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.09, 0.80), alum);
+    hstab.position.set(s * 1.05, 0.12, -4.2); hstab.rotation.y = s * 0.08;
+    root.add(hstab);
+  });
+
+  // Vertical tail fin
+  const vFin     = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.60, 1.35), alum);
+  vFin.position.set(0, 0.95, -4.2);
+  const vFinBlue = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.78, 1.28), blue);
+  vFinBlue.position.set(0, 0.95, -4.2);
+
+  // Cockpit windshield
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.30, 0.22), glass);
+  ws.position.set(0, 0.40, 4.25); ws.rotation.x = -0.30;
+  [-1, 1].forEach(s => {
+    const sw = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.26), glass);
+    sw.position.set(s * 0.63, 0.33, 4.08);
+    root.add(sw);
+  });
+
+  // Cabin windows (7 per side)
+  for (let i = 0; i < 7; i++) {
+    [-1, 1].forEach(s => {
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.19, 0.22), glass);
+      win.position.set(s * 0.63, 0.16, 3.0 - i * 0.80);
+      root.add(win);
+    });
+  }
+
+  // Belly gear pod
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.20, 0.80), dark);
+  belly.position.set(0, -0.63, 0.5);
+
+  // Tail beacon
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), redM);
+  beacon.position.z = -6.55;
+
+  root.add(fuse, noseCone, tailCone, fuseStripe, wingCtr, vFin, vFinBlue, ws, belly, beacon);
+  return { root, wheels: [] };
+}
+
+// ── Car / vehicle registry ─────────────────────────────────────────────────────
 const CARS = [
-  { build: buildBMWM1       },
-  { build: buildTestarossa  },
-  { build: buildPorsche911  },
-  { build: buildMustang     },
-  { build: buildCountach    },
+  { build: buildBMWM1,      isAircraft: false },
+  { build: buildTestarossa, isAircraft: false },
+  { build: buildPorsche911, isAircraft: false },
+  { build: buildMustang,    isAircraft: false },
+  { build: buildCountach,   isAircraft: false },
+  { build: buildAirplane,   isAircraft: true  },
 ];
 
-let carIdx = 0;
+let carIdx    = 0;
+let prevCarIdx = 0; // last non-aircraft index — restored when landing
 let { root: car, wheels } = CARS[0].build();
+let airplane = null;
 scene.add(car);
+
+function syncSelectorUI() {
+  document.querySelectorAll('.car-card').forEach((c, i) => c.classList.toggle('active', i === carIdx));
+}
 
 function selectCar(idx) {
   if (idx === carIdx) return;
   scene.remove(car);
   carIdx = idx;
-  const built = CARS[idx].build();
-  car    = built.root;
-  wheels = built.wheels;
+
+  if (CARS[idx].isAircraft) {
+    if (!airplane) airplane = buildAirplane().root;
+    car    = airplane;
+    wheels = [];
+    flightMode   = true;
+    planePitch   = 0; planeBank = 0;
+    if (flightBadgeEl) flightBadgeEl.style.display = 'block';
+  } else {
+    prevCarIdx = idx;
+    const built = CARS[idx].build();
+    car    = built.root;
+    wheels = built.wheels;
+    if (flightMode) {
+      flightMode = false; planePitch = 0; planeBank = 0;
+      if (flightBadgeEl) flightBadgeEl.style.display = 'none';
+    }
+  }
+
   car.position.copy(pos);
-  car.rotation.y = yaw;
+  car.rotation.set(0, yaw, 0);
   scene.add(car);
-  document.querySelectorAll('.car-card').forEach((c, i) => c.classList.toggle('active', i === idx));
+  syncSelectorUI();
 }
 
 document.querySelectorAll('.car-card').forEach((c, i) => c.addEventListener('click', () => selectCar(i)));
@@ -581,23 +721,33 @@ let   speed = 0;    // m/s
 let   yVel  = 0;    // vertical m/s
 let   everLanded = false; // becomes true on first ground contact
 let   spawnY     = 200;   // hover altitude until first tile contact (curvature-adjusted on teleport)
+let   steer    = 0;                        // front wheel angle (radians)
+let   velW     = new THREE.Vector3();      // world-space horizontal velocity
+let   bodyRoll = 0;                        // visual lean (radians)
+let   flightMode = false;
+let   planePitch = 0;   // visual nose tilt (radians)
+let   planeBank  = 0;   // visual wing bank (radians)
+const FLIGHT_SPD = 60;
+const flightBadgeEl = document.getElementById('flight-badge');
 
 // ── Coordinate utilities ──────────────────────────────────────────────────────
 // Scene axes after ReorientationPlugin: X=West, Y=Up, Z=North
 const M_PER_DEG_LAT = 111320;
-const M_PER_DEG_LNG = 111320 * Math.cos(THREE.MathUtils.degToRad(LAT));
+const mPerDegLng = lat => 111320 * Math.cos(THREE.MathUtils.degToRad(lat));
 
 function posToLatLng(p) {
-  return { lat: LAT + p.z / M_PER_DEG_LAT, lng: LNG - p.x / M_PER_DEG_LNG };
+  return {
+    lat: originLat + p.z / M_PER_DEG_LAT,
+    lng: originLng - p.x / mPerDegLng(originLat),
+  };
 }
 
 function latLngToScene(lat, lng) {
-  const dx = -(lng - LNG) * M_PER_DEG_LNG;
-  const dz =  (lat - LAT) * M_PER_DEG_LAT;
-  // Earth curves away from the Hannover tangent plane: y_surface ≈ -(dx²+dz²)/(2R)
-  const R_EARTH   = 6_371_000;
-  const ySurface  = -(dx * dx + dz * dz) / (2 * R_EARTH);
-  return new THREE.Vector3(dx, ySurface + 400, dz); // spawn 400 m above local ground
+  const dx = -(lng - originLng) * mPerDegLng(lat);
+  const dz =  (lat - originLat) * M_PER_DEG_LAT;
+  const R_EARTH  = 6_371_000;
+  const ySurface = -(dx * dx + dz * dz) / (2 * R_EARTH);
+  return new THREE.Vector3(dx, ySurface + 400, dz);
 }
 
 // ── Geocoding (Nominatim / OpenStreetMap — no extra key required) ─────────────
@@ -620,11 +770,40 @@ async function reverseGeocode(lat, lng) {
   return [road, city].filter(Boolean).join(', ') || data.display_name;
 }
 
+async function searchSuggestions(query) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, { headers: { 'Accept-Language': 'tr,en' } });
+  const data = await res.json();
+  return data.map(r => ({ lat: parseFloat(r.lat), lng: parseFloat(r.lon), label: r.display_name }));
+}
+
 // ── Input ─────────────────────────────────────────────────────────────────────
 const keys = new Set();
 window.addEventListener('keydown', e => {
   if (document.activeElement?.id === 'searchInput') return;
   keys.add(e.code);
+  if (e.code === 'KeyF') {
+    yVel = 0; planePitch = 0; planeBank = 0;
+    scene.remove(car);
+    if (!flightMode) {
+      // Enter flight mode
+      prevCarIdx = carIdx;
+      if (!airplane) airplane = buildAirplane().root;
+      car = airplane; wheels = []; carIdx = 5;
+      flightMode = true;
+    } else {
+      // Land — restore previous car
+      carIdx = prevCarIdx;
+      const built = CARS[carIdx].build();
+      car = built.root; wheels = built.wheels;
+      flightMode = false;
+    }
+    car.position.copy(pos);
+    car.rotation.set(0, yaw, 0);
+    scene.add(car);
+    syncSelectorUI();
+    if (flightBadgeEl) flightBadgeEl.style.display = flightMode ? 'block' : 'none';
+  }
   e.preventDefault();
 });
 window.addEventListener('keyup', e => {
@@ -637,6 +816,33 @@ const searchInput  = document.getElementById('searchInput');
 const searchBtn    = document.getElementById('searchBtn');
 const searchStatus = document.getElementById('searchStatus');
 
+function teleportTo(lat, lng) {
+  // Re-center the tile world on destination — keeps scene coords near origin
+  // so WebGL 32-bit float precision is correct for distant cities (Istanbul etc.)
+  if (API_KEY) resetTiles(lat, lng);
+  else { originLat = lat; originLng = lng; }
+
+  pos.set(0, 400, 0);   // origin == destination after resetTiles
+  spawnY = 400;
+  speed = 0; yVel = 0; everLanded = false;
+  steer = 0; velW.set(0, 0, 0); bodyRoll = 0;
+
+  // Snap camera so it doesn't lerp across the entire globe
+  camPos.set(-Math.sin(yaw) * camDist, 400 + CAM_H, -Math.cos(yaw) * camDist);
+
+  if (flightMode) {
+    scene.remove(car);
+    const built = CARS[carIdx].build();
+    car = built.root; wheels = built.wheels;
+    car.position.copy(pos);
+    car.rotation.set(0, yaw, 0);
+    scene.add(car);
+    flightMode = false; planePitch = 0; planeBank = 0;
+  }
+  if (flightBadgeEl) flightBadgeEl.style.display = 'none';
+  searchStatus.textContent = '⏳ yükleniyor…';
+}
+
 async function doSearch() {
   const query = searchInput.value.trim();
   if (!query) return;
@@ -645,16 +851,86 @@ async function doSearch() {
   const result = await geocodeAddress(query).catch(() => null);
   searchBtn.disabled = false;
   if (!result) { searchStatus.textContent = '⚠ bulunamadı'; return; }
-  searchStatus.textContent = '⏳ yükleniyor…';
-  const newPos = latLngToScene(result.lat, result.lng);
-  pos.copy(newPos);
-  spawnY = newPos.y;
-  speed = 0; yVel = 0; everLanded = false;
+  teleportTo(result.lat, result.lng);
   searchInput.blur();
 }
 
 searchBtn.addEventListener('click', doSearch);
-searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// ── Autocomplete dropdown ─────────────────────────────────────────────────────
+const searchDropdown = document.getElementById('searchDropdown');
+let suggestTimeout = null;
+let suggestResults = [];
+let activeSugIdx   = -1;
+
+function showDropdown(items) {
+  suggestResults = items;
+  activeSugIdx   = -1;
+  searchDropdown.innerHTML = '';
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'search-sug';
+    div.textContent = item.label;
+    div.addEventListener('mousedown', e => {
+      e.preventDefault();
+      teleportTo(item.lat, item.lng);
+      hideDropdown();
+      searchInput.value = '';
+      searchInput.blur();
+    });
+    searchDropdown.appendChild(div);
+  });
+  searchDropdown.style.display = items.length ? 'block' : 'none';
+}
+
+function hideDropdown() {
+  searchDropdown.style.display = 'none';
+  suggestResults = [];
+  activeSugIdx   = -1;
+}
+
+function updateSugHighlight() {
+  Array.from(searchDropdown.children).forEach((el, i) =>
+    el.classList.toggle('active-sug', i === activeSugIdx));
+}
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(suggestTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { hideDropdown(); return; }
+  suggestTimeout = setTimeout(async () => {
+    const items = await searchSuggestions(q).catch(() => []);
+    if (searchInput.value.trim() === q) showDropdown(items);
+  }, 300);
+});
+
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!suggestResults.length) return;
+    activeSugIdx = Math.min(activeSugIdx + 1, suggestResults.length - 1);
+    updateSugHighlight();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    activeSugIdx = Math.max(activeSugIdx - 1, -1);
+    updateSugHighlight();
+  } else if (e.key === 'Enter') {
+    if (activeSugIdx >= 0 && suggestResults[activeSugIdx]) {
+      const item = suggestResults[activeSugIdx];
+      teleportTo(item.lat, item.lng);
+      hideDropdown();
+      searchInput.value = '';
+      searchInput.blur();
+    } else {
+      doSearch();
+    }
+  } else if (e.key === 'Escape') {
+    hideDropdown();
+    searchInput.blur();
+  }
+});
+
+searchInput.addEventListener('blur', () => setTimeout(hideDropdown, 150));
 
 // ── Ground raycasting ─────────────────────────────────────────────────────────
 const ray       = new THREE.Raycaster();
@@ -671,13 +947,13 @@ function groundY(p) {
 }
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-const CAM_DIST  = 9;
 const CAM_H     = 2.8;
 const camPos    = new THREE.Vector3(0, 202.8, -9);
 const camLookAt = new THREE.Vector3();
 
-let camYaw   = 0;  // horizontal orbit offset (radians)
-let camPitch = 0;  // vertical pitch offset  (radians, + = higher)
+let camYaw   = 0;   // horizontal orbit offset (radians)
+let camPitch = 0;   // vertical pitch offset  (radians, + = higher)
+let camDist  = 9;   // zoom distance (scroll wheel)
 
 // Pointer lock: click canvas to grab mouse, Esc to release
 renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
@@ -686,6 +962,9 @@ document.addEventListener('mousemove', e => {
   camYaw   -= e.movementX * 0.003;
   camPitch  = THREE.MathUtils.clamp(camPitch + e.movementY * 0.003, -0.25, 1.1);
 });
+window.addEventListener('wheel', e => {
+  camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.02, 4, 120);
+}, { passive: true });
 
 // Init camera so first tiles.update() gets a sensible frustum
 camera.position.copy(camPos);
@@ -693,23 +972,79 @@ camera.lookAt(pos.x, pos.y + 1.2, pos.z);
 camera.updateMatrixWorld();
 
 // ── Minimap (Leaflet / OpenStreetMap) ─────────────────────────────────────────
-const miniMap   = window.L.map('minimap', { zoomControl: false, attributionControl: false });
-window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(miniMap);
+const miniMap    = window.L.map('minimap', { zoomControl: false, attributionControl: false });
+const mapLayer2D = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+const mapLayer3D = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+mapLayer2D.addTo(miniMap);
 miniMap.setView([LAT, LNG], 17);
 
-const carDot = window.L.circleMarker([LAT, LNG], {
-  radius: 8, color: '#fff', weight: 2, fillColor: '#4488ff', fillOpacity: 1,
-}).addTo(miniMap);
+const _arrowIcon = window.L.divIcon({
+  html: `<div class="car-arrow-inner" style="width:80px;height:100px;transform-origin:50% 50%;">
+    <svg width="80" height="100" viewBox="0 0 80 100" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="40,4 76,96 40,68 4,96" fill="#3399ff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round"/>
+    </svg>
+  </div>`,
+  iconSize: [80, 100],
+  iconAnchor: [40, 50],
+  className: '',
+});
+const carDot = window.L.marker([LAT, LNG], { icon: _arrowIcon }).addTo(miniMap);
+
+let mapIs3D = false;
+document.getElementById('mapModeBtn').addEventListener('click', () => {
+  mapIs3D = !mapIs3D;
+  if (mapIs3D) {
+    miniMap.removeLayer(mapLayer2D);
+    mapLayer3D.addTo(miniMap);
+  } else {
+    miniMap.removeLayer(mapLayer3D);
+    mapLayer2D.addTo(miniMap);
+  }
+  document.getElementById('mapModeBtn').textContent = mapIs3D ? '2D' : '3D';
+});
+
+// ── Minimap resize handles (right = width, top = height, corner = both) ───────
+{
+  const mapEl = document.getElementById('minimap');
+  let drag = null; // { mode:'w'|'h'|'wh', x0,y0,w0,h0 }
+
+  function startDrag(mode, e) {
+    e.preventDefault(); e.stopPropagation();
+    drag = { mode, x0: e.clientX, y0: e.clientY,
+             w0: mapEl.offsetWidth, h0: mapEl.offsetHeight };
+  }
+  document.getElementById('map-handle-r' ).addEventListener('mousedown', e => startDrag('w',  e));
+  document.getElementById('map-handle-t' ).addEventListener('mousedown', e => startDrag('h',  e));
+  document.getElementById('map-handle-tr').addEventListener('mousedown', e => startDrag('wh', e));
+
+  window.addEventListener('mousemove', e => {
+    if (!drag) return;
+    const dx =  e.clientX - drag.x0;   // right → wider
+    const dy = -(e.clientY - drag.y0);  // up    → taller
+    if (drag.mode === 'w' || drag.mode === 'wh')
+      mapEl.style.width  = Math.max(140, drag.w0 + dx) + 'px';
+    if (drag.mode === 'h' || drag.mode === 'wh')
+      mapEl.style.height = Math.max(140, drag.h0 + dy) + 'px';
+    miniMap.invalidateSize();
+  });
+  window.addEventListener('mouseup', () => { drag = null; });
+}
 
 let lastMapUpdateMs = 0;
 
 // ── Physics constants ─────────────────────────────────────────────────────────
-const GRAVITY = -18;
-const MAX_SPD = 28;
-const ACCEL   = 10;
-const BRAKE   = 22;
-const DRAG    = 3.5;
-const STEER   = 1.5;
+const GRAVITY    = -18;
+const MAX_SPD    = 30;    // m/s ≈ 108 km/h
+const MAX_REV    = 7;     // m/s reverse
+const ACCEL      = 10;    // m/s² engine
+const BRAKE_F    = 28;    // m/s² brakes
+const DRAG       = 2.0;   // rolling resistance
+const WHEEL_BASE = 2.6;   // axle-to-axle distance (m)
+const STEER_MAX  = 0.55;  // max front wheel angle (rad)
+const STEER_RATE = 3.5;   // steering response speed
+const GRIP_RATE  = 9.0;   // lateral velocity correction rate
+const ROLL_GAIN  = 0.06;  // body roll amplitude
+const MAX_ROLL   = 0.18;  // body roll cap (≈ 10°)
 
 // ── HUD & debug ───────────────────────────────────────────────────────────────
 const speedEl   = document.getElementById('speed');
@@ -751,42 +1086,83 @@ const clock = new THREE.Clock();
   const left  = keys.has('ArrowLeft')  || keys.has('KeyA');
   const right = keys.has('ArrowRight') || keys.has('KeyD');
 
-  // Speed
+  // Longitudinal speed
   if (fwd)       speed += ACCEL * dt;
-  else if (back) speed -= BRAKE * dt;
+  else if (back) speed -= BRAKE_F * dt;
   else           speed -= Math.sign(speed) * Math.min(Math.abs(speed), DRAG * dt);
-  speed = THREE.MathUtils.clamp(speed, -MAX_SPD * 0.3, MAX_SPD);
+  const maxSpd = flightMode ? FLIGHT_SPD : MAX_SPD;
+  speed = THREE.MathUtils.clamp(speed, -(flightMode ? maxSpd * 0.3 : MAX_REV), maxSpd);
 
-  // Steer
-  if (Math.abs(speed) > 0.5) {
-    const dir = (left ? 1 : 0) - (right ? 1 : 0);
-    yaw += dir * Math.sign(speed) * STEER * (Math.abs(speed) / MAX_SPD) * dt;
+  if (flightMode) {
+    const fDir = (left ? 1 : 0) - (right ? 1 : 0);
+    if (Math.abs(speed) > 0.5) yaw += fDir * 0.9 * dt;
+    pos.addScaledVector(new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)), speed * dt);
+    steer = 0; bodyRoll = 0; velW.set(Math.sin(yaw) * speed, 0, Math.cos(yaw) * speed);
+  } else {
+    // Steering with inertia — lock amount reduces at high speed (understeer)
+    const dir         = (left ? 1 : 0) - (right ? 1 : 0);
+    const speedFactor = Math.max(0.18, 1 - Math.abs(speed) / MAX_SPD * 0.75);
+    steer += (dir * STEER_MAX * speedFactor - steer) * (1 - Math.exp(-STEER_RATE * dt));
+
+    // Ackermann: ω = v · tan(δ) / wheelbase  (sign of speed handles reverse)
+    if (Math.abs(speed) > 0.1) {
+      yaw += (speed * Math.tan(steer) / WHEEL_BASE) * dt;
+    }
+
+    // World-space velocity with lateral grip (blends toward forward direction)
+    const fwdVel = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(speed);
+    velW.lerp(fwdVel, 1 - Math.exp(-GRIP_RATE * dt));
+    pos.x += velW.x * dt;
+    pos.z += velW.z * dt;
+
+    // Body roll: lean into corners proportional to yaw rate
+    const yawRate   = Math.abs(speed) > 0.1 ? speed * Math.tan(steer) / WHEEL_BASE : 0;
+    const tgtRoll   = THREE.MathUtils.clamp(-yawRate * ROLL_GAIN, -MAX_ROLL, MAX_ROLL);
+    bodyRoll += (tgtRoll - bodyRoll) * (1 - Math.exp(-8 * dt));
   }
 
-  // Move
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-  pos.addScaledVector(forward, speed * dt);
+  if (flightMode) {
+    // Flight: Space = ascend, C = descend, no gravity
+    const FLY_VERT = 15;
+    if (keys.has('Space'))     yVel =  FLY_VERT;
+    else if (keys.has('KeyC')) yVel = -FLY_VERT;
+    else                       yVel =  0;
+    pos.y += yVel * dt;
+    // Soft floor: stay at least 10 m above tiles
+    const gYf = groundY(pos);
+    if (gYf !== null && pos.y < gYf + 10) pos.y = gYf + 10;
+  } else {
+    // Normal: gravity + ground snap
+    yVel  += GRAVITY * dt;
+    pos.y += yVel * dt;
 
-  // Gravity + ground snap
-  yVel  += GRAVITY * dt;
-  pos.y += yVel * dt;
-
-  const gY = groundY(pos);
-  if (gY !== null && pos.y < gY + WHEEL_R) {
-    pos.y      = gY + WHEEL_R;
-    yVel       = 0;
-    everLanded = true;
-  } else if (!everLanded) {
-    // Tiles not yet loaded — hold at curvature-adjusted spawn height
-    pos.y = spawnY;
-    yVel  = 0;
+    const gY = groundY(pos);
+    if (gY !== null) {
+      if (!everLanded) everLanded = true;
+      if (pos.y < gY + WHEEL_R) {
+        pos.y = gY + WHEEL_R;
+        yVel  = 0;
+      }
+    } else if (!everLanded) {
+      pos.y = spawnY;
+      yVel  = 0;
+    }
   }
-  // After first landing: let gravity work normally; car may briefly float over
-  // unloaded tile gaps but won't teleport back to 200 m
 
-  // Car mesh
+  // Car / airplane mesh
   car.position.copy(pos);
-  car.rotation.y = yaw;
+  if (flightMode) {
+    const tgtPitch = keys.has('Space') ? 0.28 : keys.has('KeyC') ? -0.28 : 0;
+    const turnDir  = (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
+                   - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0);
+    const tgtBank  = turnDir * Math.sign(speed || 1) * 0.38;
+    planePitch += (tgtPitch - planePitch) * (1 - Math.exp(-5 * dt));
+    planeBank  += (tgtBank  - planeBank)  * (1 - Math.exp(-5 * dt));
+    car.rotation.set(planePitch, yaw, planeBank, 'YXZ');
+  } else {
+    // 'YZX': yaw first, then roll in the car's lateral axis
+    car.rotation.set(0, yaw, bodyRoll, 'YZX');
+  }
   wheels.forEach(w => (w.rotation.x += (speed * dt) / WHEEL_R));
 
   // Camera follow with mouse orbit
@@ -796,10 +1172,10 @@ const clock = new THREE.Clock();
     camPitch -= (camPitch - 0) * (1 - Math.exp(-3 * dt));
   }
   const totalYaw = yaw + camYaw;
-  const hDist    = CAM_DIST * Math.cos(camPitch);
+  const hDist    = camDist * Math.cos(camPitch);
   const desired  = new THREE.Vector3(
     pos.x - Math.sin(totalYaw) * hDist,
-    pos.y + CAM_H + CAM_DIST * Math.sin(camPitch),
+    pos.y + CAM_H + camDist * Math.sin(camPitch),
     pos.z - Math.cos(totalYaw) * hDist,
   );
   camPos.lerp(desired, 1 - Math.exp(-8 * dt));
@@ -813,6 +1189,8 @@ const clock = new THREE.Clock();
     lastMapUpdateMs = nowMap;
     const { lat, lng } = posToLatLng(pos);
     carDot.setLatLng([lat, lng]);
+    const _arrowEl = carDot.getElement()?.querySelector('.car-arrow-inner');
+    if (_arrowEl) _arrowEl.style.transform = `rotate(${-yaw * 180 / Math.PI}deg)`;
     miniMap.setView([lat, lng], miniMap.getZoom());
   }
 

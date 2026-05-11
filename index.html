@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DriveEarth – Hannover</title>
+  <title>DriveEarth</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
@@ -11,27 +11,27 @@
     body { overflow: hidden; background: #000; font-family: monospace; }
     canvas { display: block; }
 
-    /* ── Car selector ── */
+    /* ── Vehicle selector ── */
     #car-selector {
       position: fixed;
-      top: 20px;
-      right: 24px;
+      top: 36px;
+      right: 36px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 21px;
       z-index: 1001;
     }
     .car-card {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 12px 18px;
-      background: rgba(0,0,0,0.78);
-      border: 2px solid rgba(255,255,255,0.15);
-      border-radius: 14px;
+      gap: 30px;
+      padding: 33px 48px;
+      background: rgba(0,0,0,0.82);
+      border: 4px solid rgba(255,255,255,0.15);
+      border-radius: 27px;
       cursor: pointer;
       color: #fff;
-      font-size: 1.2rem;
+      font-size: 3.6rem;
       font-family: monospace;
       backdrop-filter: blur(6px);
       transition: border-color 0.15s, background 0.15s;
@@ -39,48 +39,79 @@
       user-select: none;
       white-space: nowrap;
     }
-    .car-card:hover  { border-color: rgba(255,255,255,0.45); }
-    .car-card.active { border-color: #fff; background: rgba(255,255,255,0.14); }
+    .car-card:hover  { border-color: rgba(255,255,255,0.50); }
+    .car-card.active { border-color: #fff; background: rgba(255,255,255,0.15); }
     .car-swatch {
-      width: 22px;
-      height: 22px;
+      width: 60px;
+      height: 60px;
       border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.35);
+      border: 4px solid rgba(255,255,255,0.35);
       flex-shrink: 0;
     }
 
     /* ── Search bar ── */
     #searchbar {
       position: fixed;
-      top: 20px;
+      top: 36px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
-      gap: 10px;
+      gap: 18px;
       z-index: 1000;
+      align-items: flex-start;
     }
-    #searchInput {
-      width: 900px;
-      padding: 28px 36px;
-      border: none;
-      border-radius: 18px;
+    #search-wrap {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    #searchDropdown {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: rgba(10,10,10,0.97);
+      border-radius: 0 0 27px 27px;
+      overflow: hidden;
+      z-index: 1003;
+      border: 4px solid rgba(68,136,255,0.4);
+      border-top: none;
+    }
+    .search-sug {
+      padding: 39px 66px;
+      color: #ddd;
       font-size: 3rem;
       font-family: monospace;
-      background: rgba(0,0,0,0.82);
+      cursor: pointer;
+      border-top: 1px solid rgba(255,255,255,0.07);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .search-sug:hover, .search-sug.active-sug { background: rgba(68,136,255,0.18); color: #fff; }
+    #searchInput {
+      width: min(1650px, 60vw);
+      padding: 45px 66px;
+      border: none;
+      border-radius: 27px;
+      font-size: 3.9rem;
+      font-family: monospace;
+      background: rgba(0,0,0,0.84);
       color: #fff;
-      outline: 2px solid transparent;
+      outline: 4px solid transparent;
       transition: outline 0.15s;
     }
-    #searchInput:focus { outline: 3px solid #4488ff; }
+    #searchInput:focus { outline: 6px solid #4488ff; }
     #searchInput::placeholder { color: #555; }
     #searchBtn {
-      padding: 28px 48px;
+      padding: 45px 90px;
       border: none;
-      border-radius: 18px;
+      border-radius: 27px;
       background: #2255cc;
       color: #fff;
       font-family: monospace;
-      font-size: 3rem;
+      font-size: 3.9rem;
       cursor: pointer;
       white-space: nowrap;
     }
@@ -90,54 +121,63 @@
       display: flex;
       align-items: center;
       color: #ffaa44;
-      font-size: 2.4rem;
+      font-size: 3rem;
       white-space: nowrap;
     }
 
     /* ── HUD ── */
     #hud {
       position: fixed;
-      bottom: 32px;
+      bottom: 108px;
       left: 50%;
       transform: translateX(-50%);
       color: #fff;
       text-align: center;
-      text-shadow: 0 2px 6px #000;
+      text-shadow: 0 2px 8px #000;
       pointer-events: none;
       user-select: none;
     }
     #speed {
-      font-size: 4rem;
+      font-size: 21rem;
       font-weight: bold;
       letter-spacing: 0.05em;
     }
     #address {
-      font-size: 1.5rem;
+      font-size: 6rem;
       opacity: 0.95;
-      margin-top: 6px;
-      max-width: 700px;
+      margin-top: 30px;
+      max-width: 3000px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     #controls {
-      font-size: 1.1rem;
-      opacity: 0.55;
-      margin-top: 8px;
+      font-size: 4.2rem;
+      opacity: 0.5;
+      margin-top: 24px;
+    }
+    #flight-badge {
+      display: none;
+      font-size: 10.5rem;
+      font-weight: bold;
+      color: #44aaff;
+      text-shadow: 0 0 16px #44aaff88;
+      margin-top: 24px;
+      letter-spacing: 0.08em;
     }
 
     /* ── Warning / Loading ── */
     #warning {
       display: none;
       position: fixed;
-      top: 72px;
+      top: 300px;
       left: 50%;
       transform: translateX(-50%);
       background: rgba(200,40,40,0.92);
       color: #fff;
-      padding: 10px 22px;
-      border-radius: 8px;
-      font-size: 0.82rem;
+      padding: 42px 84px;
+      border-radius: 36px;
+      font-size: 4.2rem;
       text-align: center;
       pointer-events: none;
     }
@@ -148,7 +188,7 @@
       left: 50%;
       transform: translate(-50%,-50%);
       color: rgba(255,255,255,0.6);
-      font-size: 0.85rem;
+      font-size: 4.8rem;
       pointer-events: none;
       transition: opacity 1s;
     }
@@ -156,16 +196,57 @@
     /* ── Minimap ── */
     #minimap {
       position: fixed;
-      bottom: 24px;
-      left: 24px;
-      width: 1050px;
-      height: 1050px;
-      border-radius: 24px;
+      bottom: 72px;
+      left: 72px;
+      width: 2400px;
+      height: 2400px;
+      border-radius: 72px;
       overflow: hidden;
-      border: 3px solid rgba(255,255,255,0.3);
+      border: 12px solid rgba(255,255,255,0.3);
       z-index: 1000;
-      box-shadow: 0 6px 32px rgba(0,0,0,0.7);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.7);
     }
+    .map-handle {
+      position: absolute;
+      z-index: 1005;
+      background: rgba(255,255,255,0.22);
+      border-radius: 12px;
+    }
+    #map-handle-r {
+      top: 20%; bottom: 20%; right: 0;
+      width: 30px;
+      cursor: ew-resize;
+    }
+    #map-handle-t {
+      left: 20%; right: 20%; top: 0;
+      height: 30px;
+      cursor: ns-resize;
+    }
+    #map-handle-tr {
+      top: 0; right: 0;
+      width: 84px; height: 84px;
+      cursor: nesw-resize;
+      border-radius: 0 0 0 30px;
+      background: rgba(255,255,255,0.32);
+    }
+    #mapModeBtn {
+      position: absolute;
+      bottom: 42px;
+      right: 42px;
+      z-index: 1002;
+      background: rgba(0,0,0,0.82);
+      color: #fff;
+      border: 6px solid rgba(255,255,255,0.35);
+      border-radius: 36px;
+      padding: 36px 72px;
+      font-family: monospace;
+      font-size: 4.8rem;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: border-color 0.15s;
+      pointer-events: all;
+    }
+    #mapModeBtn:hover { border-color: rgba(255,255,255,0.7); }
 
     /* ── Rate-limit overlay ── */
     #ratelimit {
@@ -182,33 +263,33 @@
     }
     #ratelimit-msg {
       color: #ff5533;
-      font-size: 2.4rem;
+      font-size: 10.5rem;
       font-weight: bold;
       text-shadow: 0 2px 8px #000;
     }
     #ratelimit-countdown {
       color: #ffdd44;
-      font-size: 7rem;
+      font-size: 36rem;
       font-weight: bold;
-      margin-top: 16px;
-      text-shadow: 0 2px 12px #000;
+      margin-top: 60px;
+      text-shadow: 0 2px 14px #000;
     }
 
-    /* ── Debug panel (health-bar style) ── */
+    /* ── Debug panel ── */
     #debug {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: rgba(0,0,0,0.82);
+      bottom: 72px;
+      right: 72px;
+      background: rgba(0,0,0,0.84);
       color: #fff;
-      font-size: 2rem;
+      font-size: 5.4rem;
       font-family: monospace;
-      padding: 32px 40px;
-      border-radius: 22px;
+      padding: 84px 108px;
+      border-radius: 60px;
       z-index: 9999;
-      min-width: 580px;
+      min-width: 1560px;
       backdrop-filter: blur(10px);
-      border: 1px solid rgba(255,255,255,0.12);
+      border: 3px solid rgba(255,255,255,0.12);
       pointer-events: none;
       user-select: text;
     }
@@ -216,51 +297,51 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 22px;
-      font-size: 1.8rem;
+      margin-bottom: 54px;
+      font-size: 5.1rem;
     }
     .hb-status { color: #00ff88; font-weight: bold; }
-    .hb-vis    { opacity: 0.5; font-size: 1.6rem; }
+    .hb-vis    { opacity: 0.5; font-size: 4.5rem; }
     .hb-row {
       display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 16px;
+      gap: 48px;
+      margin-bottom: 42px;
     }
     .hb-lbl {
-      width: 130px;
+      width: 390px;
       opacity: 0.55;
-      font-size: 1.5rem;
+      font-size: 4.2rem;
       flex-shrink: 0;
     }
     .hb-track {
       flex: 1;
-      height: 20px;
+      height: 54px;
       background: rgba(255,255,255,0.1);
-      border-radius: 10px;
+      border-radius: 27px;
       overflow: hidden;
     }
     .hb-fill {
       height: 100%;
-      border-radius: 10px;
+      border-radius: 27px;
       width: 0%;
       transition: width 0.4s ease, background-color 0.4s ease;
       background: #00cc66;
     }
     .hb-val {
-      width: 72px;
+      width: 210px;
       text-align: right;
-      font-size: 1.55rem;
+      font-size: 4.2rem;
       opacity: 0.9;
       flex-shrink: 0;
     }
     .hb-plain {
       display: flex;
-      gap: 28px;
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid rgba(255,255,255,0.1);
-      font-size: 1.5rem;
+      gap: 72px;
+      margin-top: 42px;
+      padding-top: 42px;
+      border-top: 3px solid rgba(255,255,255,0.1);
+      font-size: 4.2rem;
       opacity: 0.65;
     }
   </style>
@@ -272,6 +353,7 @@
     <div class="car-card"        data-car="2"><div class="car-swatch" style="background:#d8d8d8"></div>Porsche 911</div>
     <div class="car-card"        data-car="3"><div class="car-swatch" style="background:#1a3a1a"></div>Mustang GT</div>
     <div class="car-card"        data-car="4"><div class="car-swatch" style="background:#ffcc00"></div>Countach</div>
+    <div class="car-card"        data-car="5"><div class="car-swatch" style="background:#44aaff"></div>✈ Uçak</div>
   </div>
 
   <div id="debug">
@@ -296,7 +378,10 @@
   </div>
 
   <div id="searchbar">
-    <input id="searchInput" type="text" placeholder="Adres ara… (örn: Kröpcke, Hannover)" autocomplete="off" />
+    <div id="search-wrap">
+      <input id="searchInput" type="text" placeholder="Adres ara… (İstanbul, Antalya…)" autocomplete="off" />
+      <div id="searchDropdown"></div>
+    </div>
     <button id="searchBtn">Git</button>
     <span id="searchStatus"></span>
   </div>
@@ -304,7 +389,12 @@
     ⚠ No API key — showing flat fallback.<br>
     Copy <code>.env.example</code> → <code>.env</code> and set <code>VITE_GOOGLE_API_KEY</code>.
   </div>
-  <div id="minimap"></div>
+  <div id="minimap">
+    <div class="map-handle" id="map-handle-r"></div>
+    <div class="map-handle" id="map-handle-t"></div>
+    <div class="map-handle" id="map-handle-tr"></div>
+    <button id="mapModeBtn">3D</button>
+  </div>
   <div id="loading">Loading 3D tiles…</div>
   <div id="ratelimit" style="display:none">
     <div id="ratelimit-msg">API dakika limitine ulaşıldı — resetlenmesini bekle</div>
@@ -313,7 +403,8 @@
   <div id="hud">
     <div id="speed">0 km/h</div>
     <div id="address">konum belirleniyor…</div>
-    <div id="controls">W / ↑ &nbsp;Hızlan &nbsp;|&nbsp; S / ↓ &nbsp;Fren &nbsp;|&nbsp; A / D &nbsp;Direksiyon &nbsp;|&nbsp; 🖱 Sol tık → kamera</div>
+    <div id="controls">W/S · A/D · F Uçuş · Space/C Yüksel/İn · Scroll Zoom · Sol tık kamera</div>
+    <div id="flight-badge">✈ UÇUŞ MODU</div>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>
